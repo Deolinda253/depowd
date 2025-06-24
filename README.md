@@ -1,1 +1,672 @@
-# depowd
+<!DOCTYPE html>
+
+<html lang="id">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<script src="/socket.io/socket.io.js"></script>
+<title>Transaksi Spreadsheet</title>
+<style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      padding-bottom: 120px;
+    }
+    button {
+      padding: 6px 12px;
+      margin: 2px;
+      cursor: pointer;
+    }
+    button.active-tab {
+      background-color: #007bff;
+      color: white;
+      font-weight: bold;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #aaa;
+      padding: 8px;
+      text-align: center;
+    }
+    th.tools, td.tools {
+      width: 40px;
+    }
+    input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    .paste-btn { background-color: #6c757d; color: white; }
+    .delete-btn { background-color: #dc3545; color: white; }
+
+    td[contenteditable="true"] { background: #f9f9f9; }
+    #tabPanel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #ddd;
+      border-top: 1px solid #aaa;
+      padding: 10px;
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      white-space: nowrap;
+      justify-content: center;
+      z-index: 1000;
+    }
+    #tabPanel button {
+      flex: 0 0 auto;
+    }
+  
+#tabPanel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: nowrap;
+  background: #ddd;
+  border-top: 1px solid #aaa;
+  padding: 10px;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+}
+#actionButtons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#downloadBtn {
+  background-color: #28a745;
+  color: white;
+  font-weight: bold;
+}
+#clearBtn {
+  background-color: #dc3545;
+  color: white;
+  font-weight: bold;
+}
+
+#tabButtons button {
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+
+#tabButtons {
+  display: flex;
+  gap: 2px;
+}
+#tabButtons button {
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+
+#tabButtons {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+#tabButtons button {
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+}
+</style>
+</head>
+<body>
+<h2>Transaksi Spreadsheet</h2>
+<div id="tablesContainer"></div>
+<!-- Panel Tab -->
+<div id="tabPanel"><div id="actionButtons"><button id="downloadBtn">Download</button><div class="divider" style="width:5px;height:30px;background:black;margin:0 5px;"></div><button id="clearBtn">Clear</button></div><div id="tabButtons"></div></div>
+<script>
+const TOTAL_TABS = 6;
+
+function formatNumberWithDots(value) {
+  let num = value.replace(/\D/g, '');
+  return num.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+function parseNumberFromFormatted(value) {
+  return parseInt(value.replace(/\./g, '')) || 0;
+}
+function formatRp(num) {
+  return 'Rp ' + num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+function updateSaldo(tbody) {
+  const rows = tbody.querySelectorAll('tr');
+  let saldo = 0;
+  rows.forEach((row, i) => {
+    row.querySelector('.no').textContent = i + 1;
+    const debitInput = row.querySelector('.debit');
+    const kreditInput = row.querySelector('.kredit');
+    const saldoCell = row.querySelector('.saldo');
+
+    const debit = parseNumberFromFormatted(debitInput.value || '0');
+    const kredit = parseNumberFromFormatted(kreditInput.value || '0');
+
+    saldo = saldo - debit + kredit;
+    saldoCell.textContent = formatRp(saldo);
+  });
+  updateResult(tbody);
+}
+
+function updateResult(tbody) {
+  const rows = tbody.querySelectorAll('tr');
+  let saldo = 0;
+  let output = '';
+  rows.forEach((row, idx) => {
+    const no = idx + 1;
+    const userId = row.querySelector('.userid').textContent.trim();
+    const debit = parseNumberFromFormatted(row.querySelector('.debit').value || '0');
+    const kredit = parseNumberFromFormatted(row.querySelector('.kredit').value || '0');
+    saldo = saldo - debit + kredit;
+    const saldoStr = formatRp(saldo);
+    const ket = row.querySelector('.ket').textContent.trim();
+    output += `${no} | ${userId} | ${debit} | ${formatRp(kredit)} | ${saldoStr} | ${ket}\n`;
+  });
+  const resultEl = tbody.parentElement.querySelector('.result');
+  if(resultEl){
+    resultEl.textContent = output.trim();
+  }
+}
+
+function attachFormatListeners(tbody) {
+  tbody.querySelectorAll('.debit, .kredit').forEach(input => {
+    input.addEventListener('input', e => {
+      const caretPos = e.target.selectionStart;
+      const oldLength = e.target.value.length;
+      e.target.value = formatNumberWithDots(e.target.value);
+      const newLength = e.target.value.length;
+      const newCaretPos = caretPos + (newLength - oldLength);
+      e.target.setSelectionRange(newCaretPos, newCaretPos);
+      updateSaldo(tbody);
+    });
+  });
+}
+
+function addRow(tbody) {
+  const newRow = document.createElement('tr');
+  newRow.innerHTML = `
+    <td><button class="paste-btn">Paste</button></td>
+    <td class="no"></td>
+    <td class="userid" contenteditable="true"></td>
+    <td><input type="text" class="debit" value="" /></td>
+    <td><input type="text" class="kredit" value="" /></td>
+    <td class="saldo">Rp 0</td>
+    <td class="ket" contenteditable="true"></td>
+    <td><button class="delete-btn">Hapus</button></td>
+  `;
+  tbody.appendChild(newRow);
+  attachFormatListeners(tbody);
+  updateSaldo(tbody);
+}
+
+async function handlePaste(row, tbody) {
+  try {
+    const text = await navigator.clipboard.readText();
+    const lines = text.trim().split('\n').map(l => l.trim()).filter(l => l !== '');
+    const userId = lines[0] || '';
+    const kredit = parseInt((lines[2] || 'Rp 0').replace(/[Rp.\s]/g, '')) || 0;
+    const ket = lines[7] || '';
+
+    row.querySelector('.userid').textContent = userId;
+    row.querySelector('.kredit').value = formatNumberWithDots(kredit.toString());
+    row.querySelector('.ket').textContent = ket;
+    updateSaldo(tbody);
+  } catch (err) {
+    alert('Gagal membaca clipboard.');
+  }
+}
+
+function createTabContent(index) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'tabTable';
+  wrapper.dataset.tab = index;
+  wrapper.style.display = index === 1 ? 'block' : 'none';
+  wrapper.innerHTML = `
+    <h3>Transaksi Tab ${index}</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Paste</th>
+          <th>No</th>
+          <th>User ID</th>
+          <th>Debit (Rp)</th>
+          <th>Kredit (Rp)</th>
+          <th>Saldo (Rp)</th>
+          <th>Keterangan</th>
+          <th>Hapus</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><button class="paste-btn">Paste</button></td>
+          <td class="no">1</td>
+          <td class="userid" contenteditable="true"></td>
+          <td><input type="text" class="debit" value="" /></td>
+          <td><input type="text" class="kredit" value="" /></td>
+          <td class="saldo">Rp 0</td>
+          <td class="ket" contenteditable="true"></td>
+          <td><button class="delete-btn">Hapus</button></td>
+        </tr>
+      </tbody>
+    </table>
+    <button class="addRow">Tambah Baris</button>
+    <h4>Hasil Transaksi:</h4>
+    <pre class="result"></pre>
+  `;
+  return wrapper;
+}
+
+function initializeTab(tabEl) {
+  const tbody = tabEl.querySelector('tbody');
+  tabEl.querySelector('.addRow').addEventListener('click', () => addRow(tbody));
+  tbody.addEventListener('click', e => {
+    const row = e.target.closest('tr');
+    if (e.target.classList.contains('paste-btn')) {
+      handlePaste(row, tbody);
+    }
+    if (e.target.classList.contains('delete-btn')) {
+      row.remove();
+      updateSaldo(tbody);
+    }
+  });
+  attachFormatListeners(tbody);
+  updateSaldo(tbody);
+}
+
+const tablesContainer = document.getElementById('tablesContainer');
+const tabPanel = document.getElementById('tabPanel');
+for (let i = 1; i <= TOTAL_TABS; i++) {
+  const tabEl = createTabContent(i);
+  tablesContainer.appendChild(tabEl);
+  initializeTab(tabEl);
+
+  const tabBtn = document.createElement('button');
+  tabBtn.textContent = `Tab ${i}`;
+  tabBtn.className = 'tabBtn' + (i === 1 ? ' active-tab' : '');
+  tabBtn.dataset.tab = i;
+  tabBtn.addEventListener('click', () => {
+    document.querySelectorAll('.tabTable').forEach(t => t.style.display = 'none');
+    document.querySelector(`.tabTable[data-tab="${i}"]`).style.display = 'block';
+    document.querySelectorAll('.tabBtn').forEach(b => b.classList.remove('active-tab'));
+    tabBtn.classList.add('active-tab');
+  });
+  document.getElementById('tabButtons').appendChild(tabBtn);
+}
+  
+  // Simpan data ke localStorage
+function saveTableData() {
+  const rows = [];
+  const tbody = document.querySelector('#myTable tbody');
+  tbody.querySelectorAll('tr').forEach(tr => {
+    rows.push({
+      userid: tr.cells[1].textContent.trim(),
+      debit: tr.querySelector('.debit').value,
+      kredit: tr.querySelector('.kredit').value,
+      saldo: tr.cells[4].textContent.trim(),
+      keterangan: tr.cells[5].textContent.trim()
+    });
+  });
+  localStorage.setItem('tableData', JSON.stringify(rows));
+}
+
+// Muat data dari localStorage
+function loadTableData() {
+  const data = JSON.parse(localStorage.getItem('tableData') || '[]');
+  const tbody = document.querySelector('#myTable tbody');
+  tbody.innerHTML = '';
+  data.forEach((rowData, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="no">${idx + 1}</td>
+      <td contenteditable="true">${rowData.userid}</td>
+      <td><input type="text" class="debit" value="${rowData.debit}"></td>
+      <td><input type="text" class="kredit" value="${rowData.kredit}"></td>
+      <td class="saldo">${rowData.saldo}</td>
+      <td contenteditable="true">${rowData.keterangan}</td>
+    `;
+    tbody.appendChild(tr);
+    attachInputListeners(tr);
+  });
+}
+
+function saveAllTabData() {
+  const allData = {};
+  document.querySelectorAll('.tabTable').forEach(tabEl => {
+    const tabIndex = tabEl.dataset.tab;
+    const tbody = tabEl.querySelector('tbody');
+    const rows = [];
+    tbody.querySelectorAll('tr').forEach(tr => {
+      rows.push({
+        userid: tr.querySelector('.userid').textContent.trim(),
+        debit: tr.querySelector('.debit').value,
+        kredit: tr.querySelector('.kredit').value,
+        ket: tr.querySelector('.ket').textContent.trim()
+      });
+    });
+    allData[`tab${tabIndex}`] = rows;
+  });
+  localStorage.setItem('tabsData', JSON.stringify(allData));
+}
+
+function loadAllTabData() {
+  const allData = JSON.parse(localStorage.getItem('tabsData') || '{}');
+  document.querySelectorAll('.tabTable').forEach(tabEl => {
+    const tabIndex = tabEl.dataset.tab;
+    const tbody = tabEl.querySelector('tbody');
+    const data = allData[`tab${tabIndex}`] || [];
+    tbody.innerHTML = ''; // Clear default row
+    data.forEach((rowData, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><button class="paste-btn">Paste</button></td>
+        <td class="no">${idx + 1}</td>
+        <td class="userid" contenteditable="true">${rowData.userid}</td>
+        <td><input type="text" class="debit" value="${rowData.debit}" /></td>
+        <td><input type="text" class="kredit" value="${rowData.kredit}" /></td>
+        <td class="saldo">Rp 0</td>
+        <td class="ket" contenteditable="true">${rowData.ket}</td>
+        <td><button class="delete-btn">Hapus</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+    attachFormatListeners(tbody);
+    updateSaldo(tbody);
+  });
+}
+
+loadAllTabData(); // load saat halaman dimuat
+
+// simpan otomatis saat pengguna mengetik
+document.addEventListener('input', () => {
+  saveAllTabData();
+});
+
+// juga simpan saat pengguna mengedit konten langsung
+document.addEventListener('blur', () => {
+  saveAllTabData();
+}, true);
+
+let undoStack = [];
+let isRestoring = false;
+
+function takeSnapshot() {
+  if (isRestoring) return; // hindari menyimpan snapshot saat undo sedang dilakukan
+
+  const snapshot = {};
+  document.querySelectorAll('.tabTable').forEach(tabEl => {
+    const tabIndex = tabEl.dataset.tab;
+    const tbody = tabEl.querySelector('tbody');
+    const rows = [];
+    tbody.querySelectorAll('tr').forEach(tr => {
+      rows.push({
+        userid: tr.querySelector('.userid').textContent.trim(),
+        debit: tr.querySelector('.debit').value,
+        kredit: tr.querySelector('.kredit').value,
+        ket: tr.querySelector('.ket').textContent.trim()
+      });
+    });
+    snapshot[`tab${tabIndex}`] = rows;
+  });
+  undoStack.push(JSON.stringify(snapshot));
+  // simpan maksimal 50 snapshot
+  if (undoStack.length > 50) undoStack.shift();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    restorePreviousSnapshot();
+  }
+});
+
+function restorePreviousSnapshot() {
+  if (undoStack.length < 2) return; // tidak ada cukup riwayat
+  // buang snapshot saat ini
+  undoStack.pop();
+  const prev = JSON.parse(undoStack[undoStack.length - 1] || '{}');
+  isRestoring = true;
+
+  document.querySelectorAll('.tabTable').forEach(tabEl => {
+    const tabIndex = tabEl.dataset.tab;
+    const tbody = tabEl.querySelector('tbody');
+    const data = prev[`tab${tabIndex}`] || [];
+    tbody.innerHTML = '';
+    data.forEach((rowData, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><button class="paste-btn">Paste</button></td>
+        <td class="no">${idx + 1}</td>
+        <td class="userid" contenteditable="true">${rowData.userid}</td>
+        <td><input type="text" class="debit" value="${rowData.debit}" /></td>
+        <td><input type="text" class="kredit" value="${rowData.kredit}" /></td>
+        <td class="saldo">Rp 0</td>
+        <td class="ket" contenteditable="true">${rowData.ket}</td>
+        <td><button class="delete-btn">Hapus</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+    attachFormatListeners(tbody);
+    updateSaldo(tbody);
+  });
+
+  saveAllTabData(); // Simpan kembali ke localStorage
+  isRestoring = false;
+}
+
+document.addEventListener('input', () => {
+  saveAllTabData();
+});
+
+document.addEventListener('input', () => {
+  takeSnapshot();
+  saveAllTabData();
+});
+
+takeSnapshot(); // ambil snapshot awal setelah load
+
+tbody.addEventListener('click', e => {
+  const row = e.target.closest('tr');
+  if (e.target.classList.contains('paste-btn')) {
+    handlePaste(row, tbody);
+  }
+  if (e.target.classList.contains('delete-btn')) {
+    takeSnapshot(); // <-- tambahkan ini
+    row.remove();
+    updateSaldo(tbody);
+    saveAllTabData(); // <-- juga simpan setelah perubahan
+  }
+});
+
+tabEl.querySelector('.addRow').addEventListener('click', () => addRow(tbody));
+
+tabEl.querySelector('.addRow').addEventListener('click', () => {
+  takeSnapshot();        // <-- ambil snapshot sebelum tambah
+  addRow(tbody);
+  saveAllTabData();      // <-- simpan setelah tambah
+});
+
+document.addEventListener('input', () => {
+  takeSnapshot();
+  saveAllTabData();
+});
+
+loadAllTabData();
+takeSnapshot(); // snapshot pertama
+
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const downloadBtn = document.getElementById('downloadBtn');
+  const clearBtn = document.getElementById('clearBtn');
+
+  if (downloadBtn) {
+    downloadBtn.addEventListener('click', () => {
+      const activeTab = document.querySelector('.tabBtn.active-tab');
+      const tabIndex = activeTab ? activeTab.dataset.tab : '1';
+      const tabEl = document.querySelector(`.tabTable[data-tab="${tabIndex}"]`);
+      const tbody = tabEl.querySelector('tbody');
+      const rows = [['NO', 'USER ID', 'DEBIT', 'KREDIT', 'SALDO', 'KETERANGAN']];
+
+      let saldo = 0;
+      tbody.querySelectorAll('tr').forEach((tr, i) => {
+        const userid = tr.querySelector('.userid').textContent.trim() || '';
+        const debit = parseInt(tr.querySelector('.debit').value.replace(/\./g, '')) || 0;
+        const kredit = parseInt(tr.querySelector('.kredit').value.replace(/\./g, '')) || 0;
+        saldo = saldo - debit + kredit;
+        const ket = tr.querySelector('.ket').textContent.trim() || '';
+        rows.push([i + 1, userid || null, debit || null, kredit || null, saldo, ket || null]);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      const range = XLSX.utils.decode_range(ws['!ref']);
+
+      // Gaya header: warna seperti file contoh
+      const headerColors = ["FFFF00", "DDDDDD", "CCFFCC", "FFCCCC", "CCCCFF", "99CCFF"];
+      for (let C = 0; C <= 5; C++) {
+        const cell = XLSX.utils.encode_cell({ r: 0, c: C });
+        if (!ws[cell]) continue;
+        ws[cell].s = {
+          font: { bold: true },
+          alignment: { horizontal: "center" },
+          fill: { fgColor: { rgb: headerColors[C] } },
+          border: {
+            top: { style: "thin" },
+            bottom: { style: "thin" },
+            left: { style: "thin" },
+            right: { style: "thin" }
+          }
+        };
+      }
+
+      // Gaya border dan alignment untuk isi
+      for (let R = 1; R <= range.e.r; ++R) {
+        for (let C = 0; C <= 5; ++C) {
+          const cell = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws[cell]) continue;
+          ws[cell].s = {
+            alignment: { horizontal: C > 1 && C <= 4 ? "right" : "left" },
+            border: {
+              top: { style: "thin" },
+              bottom: { style: "thin" },
+              left: { style: "thin" },
+              right: { style: "thin" }
+            }
+          };
+        }
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, `Tab ${tabIndex}`);
+      XLSX.writeFile(wb, `Transaksi_Tab${tabIndex}.xlsx`);
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      if (!confirm("Yakin ingin menghapus semua data?")) return;
+      localStorage.removeItem('tabsData');
+      undoStack = [];
+      document.querySelectorAll('.tabTable').forEach(tabEl => {
+        const tbody = tabEl.querySelector('tbody');
+        tbody.innerHTML = '';
+        addRow(tbody);
+        updateSaldo(tbody);
+      });
+      saveAllTabData();
+      takeSnapshot();
+    });
+  }
+});
+const socket = io();
+
+// Kirim data saat ada perubahan
+function emitDataChange(tabIndex, rows) {
+  socket.emit('update-data', { tab: `tab${tabIndex}`, rows });
+}
+
+// Setiap perubahan input dikirim ke server
+document.addEventListener('input', () => {
+  document.querySelectorAll('.tabTable').forEach(tabEl => {
+    const tabIndex = tabEl.dataset.tab;
+    const tbody = tabEl.querySelector('tbody');
+    const rows = [];
+    tbody.querySelectorAll('tr').forEach(tr => {
+      rows.push({
+        userid: tr.querySelector('.userid').textContent.trim(),
+        debit: tr.querySelector('.debit').value,
+        kredit: tr.querySelector('.kredit').value,
+        ket: tr.querySelector('.ket').textContent.trim()
+      });
+    });
+    emitDataChange(tabIndex, rows);
+  });
+});
+
+// Saat menerima data baru dari server
+socket.on('sync-data', ({ tab, rows }) => {
+  const tabEl = document.querySelector(`.tabTable[data-tab="${tab.replace('tab','')}"]`);
+  const tbody = tabEl.querySelector('tbody');
+  tbody.innerHTML = '';
+  rows.forEach((rowData, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><button class="paste-btn">Paste</button></td>
+      <td class="no">${idx + 1}</td>
+      <td class="userid" contenteditable="true">${rowData.userid}</td>
+      <td><input type="text" class="debit" value="${rowData.debit}" /></td>
+      <td><input type="text" class="kredit" value="${rowData.kredit}" /></td>
+      <td class="saldo">Rp 0</td>
+      <td class="ket" contenteditable="true">${rowData.ket}</td>
+      <td><button class="delete-btn">Hapus</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  attachFormatListeners(tbody);
+  updateSaldo(tbody);
+});
+
+// Saat pertama kali load halaman, terima data awal
+socket.on('init-data', (data) => {
+  for (let tab in data) {
+    const tabIndex = tab.replace('tab', '');
+    const tabEl = document.querySelector(`.tabTable[data-tab="${tabIndex}"]`);
+    const tbody = tabEl.querySelector('tbody');
+    const rows = data[tab];
+    tbody.innerHTML = '';
+    rows.forEach((rowData, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><button class="paste-btn">Paste</button></td>
+        <td class="no">${idx + 1}</td>
+        <td class="userid" contenteditable="true">${rowData.userid}</td>
+        <td><input type="text" class="debit" value="${rowData.debit}" /></td>
+        <td><input type="text" class="kredit" value="${rowData.kredit}" /></td>
+        <td class="saldo">Rp 0</td>
+        <td class="ket" contenteditable="true">${rowData.ket}</td>
+        <td><button class="delete-btn">Hapus</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+    attachFormatListeners(tbody);
+    updateSaldo(tbody);
+  }
+});
+
+</script></body>
+</html>
